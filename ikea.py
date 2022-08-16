@@ -2,7 +2,8 @@
 This code is to work on Data Collection Pipeline project
 @author: Behzad 
 '''
-import os
+import os, json
+import uuid # To creat universal unique IDs
 import urllib.request
 from operator import concat
 from selenium import webdriver
@@ -20,7 +21,7 @@ class DataCollection:
     def __init__(self, url='www.google.co.uk'):
         ## Initializing all attributes
         self.url = url
-        self.driver = webdriver.Chrome(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install()) # Access web driver
+        self.driver = webdriver.Chrome(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install()) # Access the Chrome web driver
         self.action = ActionChains(self.driver) # Sets action chains
         
     def load_and_pass_cookies(self):
@@ -65,12 +66,47 @@ class DataCollection:
         #print(len(big_list_unique))
         return more_link_list
 
-    def download_images(self, img_name, i):
-        ## Downloads images to the 'images' folder
-        self.src = self.driver.find_element_by_xpath('//img[@class="pip-aspect-ratio-image__image"]').get_attribute('src') # Prepares the image source to download
+    def download_images(self, img_name, id=0, download=True):
+        ## Downloads image to the 'images' folder
+        if not os.path.exists('raw_data'): os.makedirs('raw_data') # Creats 'raw_data' folder if it is not exist
+        os.chdir(f'raw_data') # Go to 'raw_data' folder
+        if not os.path.exists(f'{id}'): os.makedirs(f'{id}') # Creats 'raw_data' folder if it is not exist
+        os.chdir(f'{id}') # Go to '{id}' folder
         if not os.path.exists('images'): os.makedirs('images') # Creats 'images' folder if it is not exist
-        urllib.request.urlretrieve(self.src, f"./images/{img_name}_{i}.png") # saves images to the folder
+        os.chdir('images') # Go to 'images' folder
+        src = self.driver.find_element_by_xpath('//div[@class="pip-product__left-top"]//img[@class="pip-aspect-ratio-image__image"]').get_attribute('src') # Prepares the image source to download
+        if download == True:
+            try:
+                urllib.request.urlretrieve(src, f"./{img_name}_{id}.jpg") # saves images to the folder
+            except:
+                print(f"Couldn't download the main image: {src} for {id} product")
         sleep(0.5)
+        os.chdir('../../..') # Goes back to parent directory
+        return src
+
+    def download_multiple_images(self, img_name, id=0, download=True):
+        ## Downloads multiple images of a product to the 'multiple_images' folder
+        if not os.path.exists('raw_data'): os.makedirs('raw_data') # Creats 'raw_data' folder if it is not exist
+        os.chdir(f'raw_data') # Go to 'raw_data' folder
+        if not os.path.exists(f'{id}'): os.makedirs(f'{id}') # Creats 'raw_data' folder if it is not exist
+        os.chdir(f'{id}') # Go to '{id}' folder
+        if not os.path.exists('multiple_images'): os.makedirs('multiple_images') # Creats 'multiple_images' folder if it is not exist
+        os.chdir('multiple_images') # Go to 'multiple_images' folder
+        src_container = self.driver.find_elements(by=By.XPATH, value="//div[@class='pip-media-grid__grid ']//img")
+        sleep(0.5)
+        img_links_list = []
+        for k, srcs in enumerate(src_container):
+            # Goops on all the elements of the container to extract their links
+            img = srcs.get_attribute("src") # Gets the image link
+            img_links_list.append(img)
+            if download == True:
+                try:
+                    urllib.request.urlretrieve(img, f"./{img_name}_{k}_{id}.jpg") # saves images to the folder
+                except:
+                    print(f"Couldn't download this image: {img} for {id} product")
+            #print(img)
+        os.chdir('../../..') # Goes back to parent directory
+        return img_links_list
 
     def scrol_down(self):
         ## Scroling down the page slowly like a human
@@ -81,28 +117,57 @@ class DataCollection:
             scrol_speed += 300  
             sleep(0.5)
 
+    def generate_uuid(self):
+        ## Generates Universal Unique IDs
+        return str(uuid.uuid4())
+
+    def save_raw_data(self, dict, id=0):
+        # To save the raw data dictionaries locally
+        if not os.path.exists('raw_data'): os.makedirs('raw_data') # Creats 'raw_data' folder if it is not exist
+        os.chdir(f'raw_data') # Go to 'raw_data' folder
+        if not os.path.exists(f'{id}'): os.makedirs(f'{id}') # Creats 'raw_data' folder if it is not exist
+        os.chdir(f'{id}') # Go to '{id}' folder
+        sleep(0.5)
+        with open('data.json', 'w') as fp:
+            json.dump(dict, fp) # Saves dict in a json file
+        os.chdir('../..') # Goes back to parent directory
+
     def scrape_data(self):
         ## Extrac/scrape all the needed information from a website
         self.load_and_pass_cookies() # Load webpage and pass cookies
         searchTextbox = self.driver.find_element(by=By.XPATH, value='//div[@class="search-field"]') # Finds the search text box position
-        self.action.move_to_element(searchTextbox).click().send_keys("beds").send_keys(Keys.RETURN).perform() # Types a word to the search box
+        self.action.move_to_element(searchTextbox).click().send_keys("desk").send_keys(Keys.RETURN).perform() # Types a word to the search box
         sleep(1.5)
         self.scrol_down() # Scroling down the page
         #all_links_list = self.get_links() # Gets all links in the first page
         all_links_list = self.get_more_links(2) # # Gets all links in multiple pages
         for i, link in enumerate(all_links_list):
+            dict_properties = {'Product_id': [], 'UUID_number': [],'Price': [], 'Name': [], 'Description': [], 'Image_link': [], 'Image_all_links': []} # puts all info to a dictionary
             self.driver.get(link) # Gets each link and open it
             sleep(1)
+            # extract the price, address, number of bedrooms and the description:
+            product_id = self.driver.find_element(By.XPATH, "//div[@class='pip-product__subgrid product-pip js-product-pip']").get_attribute('data-product-id') # Gets product id
+            dict_properties['Product_id'].append(product_id) # Adds info to the dictionary
+            uuid_number = self.generate_uuid() # Generates universal unique ids
+            dict_properties['UUID_number'].append(uuid_number)
             price = self.driver.find_element(By.XPATH, "//span[@class='pip-price__integer']").text # Gets price
+            dict_properties['Price'].append(price)
             name = self.driver.find_element(By.XPATH, "//span[@class='pip-header-section__title--big notranslate']").text # Gets name
+            dict_properties['Name'].append(name)
             description = self.driver.find_element(By.XPATH, "//span[@class='pip-header-section__description-text']").text # Gets description
-            self.download_images(f'{name}_beds_', i) # Downloads the image
-            print(name, price, description)
+            dict_properties['Description'].append(description)
+            src_img = self.download_images(f'{name}_', product_id, True) # If true, downloads the image and save it with their name and product id
+            dict_properties['Image_link'].append(src_img)
+            src_multi_img = self.download_multiple_images(f'{name}_', product_id, True) # If true, downloads the all images of a product and save it with their name, an intiger and product id
+            dict_properties['Image_all_links'].append(src_multi_img)
+            #print(product_id, name, price, description, src_img, src_multi_img)
+            #print(dict_properties)
+            self.save_raw_data(dict_properties, product_id)
 
 def main():
     ## main function to scrape a webpage
-    my_url = 'https://www.ikea.com/gb/en/'
-    scrp = DataCollection(my_url)
+    get_url = 'https://www.ikea.com/gb/en/'
+    scrp = DataCollection(get_url)
     scrp.scrape_data()
 
 if __name__ == '__main__':
