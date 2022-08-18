@@ -17,42 +17,66 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
 from time import sleep
 
-class DataCollection:
+class Scraper:
+    '''
+    This class will load a website and accept the cookies if applicable
+    '''
     def __init__(self, url='www.google.co.uk'):
         '''
         This function initialize all attributes used in this class.
         '''
         self.url = url
         self.driver = webdriver.Chrome(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install()) # Access the Chrome web driver
+        self.driver.get(self.url)
         self.action = ActionChains(self.driver) # Sets action chains
         
-    def __load_web_and_pass_cookies(self):
+    def load_web_and_pass_cookies(self, xpath: str = '//*[@id="onetrust-accept-btn-handler"]'):
         '''
         This method loads a website and accepts the cookies.
 
         It has a delay setup (in seconds) to allow the cookies' frame pops up.
+
+        Parameters
+        ----------
+        xpath (str)
+            The xpath of the Accept Cookies botton
         '''
-        self.driver.get(self.url)
-        sleep(0.5)
         delay = 3 # Sets a delay after the webside is loaded to allow the cookies' frame pops up  
         try:
             # Tries to wait for web driver be accessed and the cookies frame pops up. Then, clicks 'accept cookies'
-            WebDriverWait(self.driver, delay).until(EC.presence_of_element_located((By.XPATH, '//*[@id="onetrust-accept-btn-handler"]')))
-            accept_cookies_button = WebDriverWait(self.driver, delay).until(EC.presence_of_element_located((By.XPATH, '//*[@id="onetrust-accept-btn-handler"]')))
+            WebDriverWait(self.driver, delay).until(EC.presence_of_element_located((By.XPATH, xpath)))
+            accept_cookies_button = WebDriverWait(self.driver, delay).until(EC.presence_of_element_located((By.XPATH, xpath)))
             accept_cookies_button.click()
-            sleep(1)
+            sleep(0.5)
         except TimeoutException:
             print("Loading took too much time!")
-        sleep(0.5)
 
-    def __get_list_of_product_links(self) -> list:
+class DataCollection(Scraper):
+    '''
+    This class will scrape the web details, download related images and store the data locally
+    '''
+    def search_box(self, search_word: str, xpath_value: str='//div[@class="search-field"]'):
+        '''
+        This functions finds the search box and types the search_word to be found
+
+        Parameters
+        ----------
+        search_word (str)
+            The word that needs to be searched
+        xpath_value (str)
+            The value for xpath to find the search box
+        '''
+        searchTextbox = self.driver.find_element(by=By.XPATH, value=xpath_value) # Finds the search text box position
+        self.action.move_to_element(searchTextbox).click().send_keys(search_word).send_keys(Keys.RETURN).perform() # Types a word to the search box
+    
+    def __get_product_links(self) -> list:
         '''
         This Function gets all links of elements/products in the first page of a webpage
 
         Returns
         -------
         list
-            The href of the URLs
+            Returns the links (href) of all products
         '''
         links_list = []
         # Find all elements in a container or a table 
@@ -64,17 +88,17 @@ class DataCollection:
             #print(link)
         return links_list
 
-    def __get_more_links(self, num_page=2) -> list:
+    def __get_more_product_links(self, num_page: int = 2) -> list:
         '''
         This function gets more links by loading more elements or going to the next pages (if applicable)
 
-        Args
-        ----
+        Parameters
+        ----------
             num_page (int): The number of pages that need to be extracted
         '''
         big_list = []
         for _ in range(num_page):
-            big_list.append(self.__get_list_of_product_links())
+            big_list.append(self.__get_product_links())
             try:
                 self.driver.find_element(By.XPATH, "//a[@class='show-more__button button button--secondary button--small']").click() # Clicks on next page or loading more products
                 sleep(2)
@@ -83,16 +107,16 @@ class DataCollection:
         more_link_list = list(set([k for sub in big_list for k in sub])) # flatten and unique the list of links
         return more_link_list
 
-    def __download_image(self, img_name, id=0, download=True):
+    def __download_image(self, img_name: str, dir_name: str = '', download: bool = True):
         '''
         This function is used to download the main image for each product and save it to the 'images' folder
 
-        Args
-        ----
+        Parameters
+        ----------
         img_name (str)
             Defines the name of the image
-        id (str)
-            Gives the image name a spesific id (like production id or unique id) as well as creating a parent directory named id for the 'images' folder  
+        dir_name (str)
+            Gives the image name a spesific id (like production id or unique id) as well as creating a parent directory named dir_name for the 'images' folder  
         download (bool)
             If True, downloads the image. Otherwise, just get the src link of the image
 
@@ -102,15 +126,15 @@ class DataCollection:
         '''
         src = self.driver.find_element_by_xpath('//div[@class="pip-product__left-top"]//img[@class="pip-aspect-ratio-image__image"]').get_attribute('src') # Prepares the image source to download
         if download == True:
-            if not os.path.exists(f'raw_data/{id}/images'): os.makedirs(f'raw_data/{id}/images') # Creats 'raw_data, {id} and images' folders if it is not exist
+            if not os.path.exists(f'raw_data/{dir_name}/images'): os.makedirs(f'raw_data/{dir_name}/images') # Creats 'raw_data, {id} and images' folders if it is not exist
             sleep(1)
             try:
-                urllib.request.urlretrieve(src, f"./raw_data/{id}/images/{img_name}_{id}.jpg") # saves images to the folder
+                urllib.request.urlretrieve(src, f"./raw_data/{dir_name}/images/{img_name}_{dir_name}.jpg") # saves images to the folder
             except:
-                print(f"Couldn't download the main image: {src} for {id} product")
+                print(f"Couldn't download the main image: {src} for {dir_name} product")
         return src
 
-    def __download_multiple_images(self, img_name, id=0, download=True):
+    def __download_multiple_images(self, img_name: str, dir_name: str = '', download: bool = True):
         '''
         This function is used to download multiple images of a product and save them to the 'multiple_images' folder
 
@@ -124,26 +148,26 @@ class DataCollection:
             img = srcs.get_attribute("src") # Gets the image link
             img_links_list.append(img)
             if download == True:
-                if not os.path.exists(f'raw_data/{id}/multiple_images'): os.makedirs(f'raw_data/{id}/multiple_images') # Creats 'raw_data, {id} and multiple_images' folders if it is not exist
+                if not os.path.exists(f'raw_data/{dir_name}/multiple_images'): os.makedirs(f'raw_data/{dir_name}/multiple_images') # Creats 'raw_data, {id} and multiple_images' folders if it is not exist
                 try:
-                    urllib.request.urlretrieve(img, f"./raw_data/{id}/multiple_images/{img_name}_{k}_{id}.jpg") # saves images to the folder
+                    urllib.request.urlretrieve(img, f"./raw_data/{dir_name}/multiple_images/{img_name}_{k}_{dir_name}.jpg") # saves images to the folder
                 except:
-                    print(f"Couldn't download this image: {img} for {id} product")
+                    print(f"Couldn't download this image: {img} for {dir_name} product")
             #print(img)
         return img_links_list
 
-    def scrol_down(self, n=2, speed=300):
+    def scrol_down(self, steps: int = 2, speed: int = 300):
         '''
         This function is an action to scrol down a page slowly and step by step like a human.
-        Args
-        ----
-        n (int)
+        Parameters
+        ----------
+        steps (int)
             Defiens the number of steps to go throw the page.
         speed (int)
             Sets the speed of scroling down in each step. 
         '''
         scrol_speed = speed # This number controls the speed of the scrolling down. If larger, scrols faster
-        for _ in range(n):
+        for _ in range(steps):
             # To scrol down step by step. In order to cover all page scrolling down the range should be larger
             self.driver.execute_script("window.scrollTo(0, "+str(scrol_speed)+")")
             scrol_speed += speed  
@@ -164,20 +188,19 @@ class DataCollection:
         '''
         return str(uuid.uuid4())
 
-    def store_raw_data(self, dict, id=0):
+    def store_raw_data(self, dict: dict, dir_name: str = '_'):
         '''
         This function used to store the raw data dictionaries locally
 
-        Args
-        ----
+        Parameters
+        ----------
         dict (str)
             It's the name of the dictionary that needs to be stored
-        id (str)
-            Defines a spesific directory named 'id' (like production id or unique id) to store the dictionary as a json file 
+        dir_name (str)
+            Defines a spesific directory named 'dir_name' (like production id or unique id) to store the dictionary as a json file 
         '''
-        if not os.path.exists(f'raw_data/{id}'): os.makedirs(f'raw_data/{id}') # Creats 'raw_data and id' folders if it is not exist
-        sleep(0.5)
-        with open(f'./raw_data/{id}/data.json', 'w') as fp:
+        if not os.path.exists(f'raw_data/{dir_name}'): os.makedirs(f'raw_data/{dir_name}') # Creats 'raw_data and id' folders if it is not exist
+        with open(f'./raw_data/{dir_name}/data.json', 'w') as fp:
             json.dump(dict, fp) # Saves dict in a json file
 
     def scrape_data(self):
@@ -188,14 +211,13 @@ class DataCollection:
         Then scrols down and gets the URL of all products available, accessing each of them and extracting 
         data for each product. The details will be stored in a dictionary.
         '''
-        self.__load_web_and_pass_cookies() # Load webpage and pass cookies
-        searchTextbox = self.driver.find_element(by=By.XPATH, value='//div[@class="search-field"]') # Finds the search text box position
-        self.action.move_to_element(searchTextbox).click().send_keys("desk").send_keys(Keys.RETURN).perform() # Types a word to the search box
-        sleep(1.5)
+        self.load_web_and_pass_cookies() # Load webpage and pass cookies
+        self.search_box('desk')
+        sleep(1)
         self.scrol_down(5) # Scroling down the page by (n) steps
-        #all_links_list = self.__get_list_of_product_links() # Gets all links in the first page
-        all_links_list = self.__get_more_links(2) # # Gets all links in multiple (n) pages
-        for link in all_links_list:
+        #all_links_list = self.__get_product_links() # Gets all links in the first page
+        all_links_list = self.__get_more_product_links(2) # # Gets all links in multiple (n) pages
+        for link in all_links_list[:4]: ## temporary sets to first 4 products
             dict_properties = {} # Creats a dictionary
             self.driver.get(link) # Gets each link and open it
             sleep(1)
@@ -210,12 +232,3 @@ class DataCollection:
             dict_properties.update({'Product_id': [product_id], 'UUID_number': [uuid_number],'Price': [currency + price], 'Name': [name], 'Description': [description], 'Image_link': [src_img], 'Image_all_links': src_multi_img})
             #self.store_raw_data(dict_properties, product_id) # Locally stores the dictionary 
             print(dict_properties)
-
-def main():
-    ## main function to scrape a webpage
-    get_url = 'https://www.ikea.com/gb/en/'
-    scrp = DataCollection(get_url)
-    scrp.scrape_data()
-
-if __name__ == '__main__':
-    main()
