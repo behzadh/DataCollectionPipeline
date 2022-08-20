@@ -69,7 +69,7 @@ class DataCollection(Scraper):
         searchTextbox = self.driver.find_element(by=By.XPATH, value=xpath_value) # Finds the search text box position
         self.action.move_to_element(searchTextbox).click().send_keys(search_word).send_keys(Keys.RETURN).perform() # Types a word to the search box
     
-    def __get_product_links(self) -> list:
+    def _get_product_links(self) -> list:
         '''
         This Function gets all links of elements/products in the first page of a webpage
 
@@ -88,7 +88,7 @@ class DataCollection(Scraper):
             #print(link)
         return links_list
 
-    def __get_more_product_links(self, num_page: int = 2) -> list:
+    def _get_more_product_links(self, num_page: int = 2) -> list:
         '''
         This function gets more links by loading more elements or going to the next pages (if applicable)
 
@@ -98,7 +98,7 @@ class DataCollection(Scraper):
         '''
         big_list = []
         for _ in range(num_page):
-            big_list.append(self.__get_product_links())
+            big_list.append(self._get_product_links())
             try:
                 self.driver.find_element(By.XPATH, "//a[@class='show-more__button button button--secondary button--small']").click() # Clicks on next page or loading more products
                 sleep(2)
@@ -107,7 +107,7 @@ class DataCollection(Scraper):
         more_link_list = list(set([k for sub in big_list for k in sub])) # flatten and unique the list of links
         return more_link_list
 
-    def __download_image(self, img_name: str, dir_name: str = '', download: bool = True):
+    def _download_image(self, img_name: str, dir_name: str = '', download: bool = True):
         '''
         This function is used to download the main image for each product and save it to the 'images' folder
 
@@ -122,7 +122,8 @@ class DataCollection(Scraper):
 
         Returens
         --------
-        the src link (str) of the image
+        list
+            the src link of the image
         '''
         src = self.driver.find_element_by_xpath('//div[@class="pip-product__left-top"]//img[@class="pip-aspect-ratio-image__image"]').get_attribute('src') # Prepares the image source to download
         if download == True:
@@ -134,7 +135,7 @@ class DataCollection(Scraper):
                 print(f"Couldn't download the main image: {src} for {dir_name} product")
         return src
 
-    def __download_multiple_images(self, img_name: str, dir_name: str = '', download: bool = True):
+    def _download_multiple_images(self, img_name: str, dir_name: str = '', download: bool = True):
         '''
         This function is used to download multiple images of a product and save them to the 'multiple_images' folder
 
@@ -215,20 +216,22 @@ class DataCollection(Scraper):
         self.search_box('desk')
         sleep(1)
         self.scrol_down(5) # Scroling down the page by (n) steps
-        #all_links_list = self.__get_product_links() # Gets all links in the first page
-        all_links_list = self.__get_more_product_links(2) # # Gets all links in multiple (n) pages
+        #all_links_list = self._get_product_links() # Gets all links in the first page
+        all_links_list = self._get_more_product_links(2) # # Gets all links in multiple (n) pages
         for link in all_links_list[:4]: ## temporary sets to first 4 products
             dict_properties = {} # Creats a dictionary
             self.driver.get(link) # Gets each link and open it
             sleep(1)
+            # -------- Product details --------
             product_id = self.driver.find_element(By.XPATH, "//div[@class='pip-product__subgrid product-pip js-product-pip']").get_attribute('data-product-id') # Gets product id
             uuid_number = self.generate_uuid() # Generates universal unique ids
             price = self.driver.find_element(By.XPATH, "//span[@class='pip-price__integer']").text # Gets price
             currency = self.driver.find_element(By.XPATH, "//span[@class='pip-price__currency-symbol pip-price__currency-symbol--leading\n        pip-price__currency-symbol--superscript']").text # Gets currency
             name = self.driver.find_element(By.XPATH, "//span[@class='pip-header-section__title--big notranslate']").text # Gets name
             description = self.driver.find_element(By.XPATH, "//span[@class='pip-header-section__description-text']").text # Gets description
-            src_img = self.__download_image(f'{name}_', product_id, False) # If true, downloads the image and save it with their name and product id
-            src_multi_img = self.__download_multiple_images(f'{name}_', product_id, False) # If true, downloads the all images of a product and save it with their name, an intiger and product id
+            src_img = self._download_image(f'{name}_', product_id, False) # If true, downloads the image and save it with their name and product id
+            src_multi_img = self._download_multiple_images(f'{name}_', product_id, False) # If true, downloads the all images of a product and save it with their name, an intiger and product id
+            # ---------------------------------
             dict_properties.update({'Product_id': [product_id], 'UUID_number': [uuid_number],'Price': [currency + price], 'Name': [name], 'Description': [description], 'Image_link': [src_img], 'Image_all_links': src_multi_img})
             #self.store_raw_data(dict_properties, product_id) # Locally stores the dictionary 
             print(dict_properties)
