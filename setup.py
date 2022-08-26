@@ -6,4 +6,6 @@ setup(name='ikea_project',
       install_requires=[
             'selenium',
             'webdriver_manager',
+            'boto3',
+            'awscli',
             ])

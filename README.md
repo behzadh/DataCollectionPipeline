@@ -124,3 +124,99 @@ you can run the testing by the folowing command from the root directory:
 ```code
 python test_code.py 
 ```
+
+### Scalably storing data
+
+> In the digital world, everything we interact with and work on, creates data. All the files, images, audio/video data that we daily watch and use generates an increasing quantity of data. This data needs to be stored somewhere to be able to access and analyze it later. Storing data is one of the crusial tasks in each project or orgnization. In this section we review different methods to store data.
+
+- Storing data can be prepared in two ways:
+    1. Locally: on a PC or a hard drive
+    2. On cloud: like Amazon, Google and MicroSoft cloud platforms
+
+1. Store data locally: 
+    - This can be done by leting the code to create a directory on a local system like a PC or a hard drive and store differen types of data locally. The most comon files to store data are json, csv and images.
+    ```python
+    def store_raw_data_locally(self, dict: dict, dir_name: str = '_'):
+        print('Storing data locally...')
+        if not os.path.exists(f'~/{dir_name}'): os.makedirs(f'~/{dir_name}') 
+        with open(f'~/{dir_name}/data.json', 'w') as fp:
+            json.dump(dict, fp)
+    ```
+    This function will first create a directory with 'dir_name' if it is not exsist. Then, stores data (here a dictionary) to a json file, 'data.json'.
+
+2. Store data on cloud:
+    - What are the benefits of cloud storage:
+        - Total Cost of Ownership
+        - Time to Deployment
+        - Performance
+        - Reliability and Security
+    
+    - As mentioned earlier there are different platforms to store data on cloud. However, here we only focus on two Amazon Web Service (AWS) storage service.
+        1. Amazon S3 (Amazon Simple Storage Service)
+        2. AWS Relational Database Service (RDS)
+
+    1. Amazon S3 buckets are data lakes where you can store your files. In order to access S3 buckets you need to do the following steps:
+        - Create an IAM user on the Amazon website.
+        - Download and configure AWS CLI
+        ```code 
+        pip install awscli
+        aws configure
+        ```
+        - Using boto3 for using your AWS resources from Python
+            - boto3 is a library that allows us to work with AWS from our python script. 
+            ```python
+            import boto3 
+            s3_client = boto3.client('s3')
+            # response = s3_client.upload_file(file_name, bucket, object_name)
+            response = s3_client.upload_file('cat_0.jpg', 'cat-scraper', 'cat.jpg')
+            ```
+            This a simple example to upload a file on Amazon S3 bucket by using boto3 library. file_name is the directory of the file you want to upload, bucket is the name of your S3 bucket, and object_name is the name you want to give to your file once uploaded.
+            We can also see the content of a bucket and then download the files:
+            ```python
+            import boto3
+            s3 = boto3.resource('s3')
+            my_bucket = s3.Bucket('datacollectionprojectbucket')
+
+            for file in my_bucket.objects.all():
+                print(file.key)
+
+            s3 = boto3.client('s3')
+            s3.download_file('datacollectionprojectbucket', 'raw_data/S79429602/data.json', 'my.json')
+            ```
+    
+    2. AWS Relational Database Service, RDS, is a service for hosting databases on the AWS cloud. AWS RDS allows you to create a database in the cloud. It is a highly scalable database that can be used for a variety of purposes. Let's create a PostgreSQL database.
+        - Go to the AWS Console and select the Services tab. 
+        - Click on the RDS tab. 
+        - After that, click on 'Create database'
+        - Select PostgreSQL as the type of database and setup the database
+        - Click on Create, and wait for it to be created.
+        - Now we are ready to connect to the database as following! The default user and database are postgres and postgres.
+        ```python
+        from sqlalchemy import create_engine
+        DATABASE_TYPE = 'postgresql'
+        DBAPI = 'psycopg2'
+        ENDPOINT = 'aicoredb.c8k7he1p0ynz.us-east-1.rds.amazonaws.com' # Change it for your AWS endpoint
+        USER = 'postgres'
+        PASSWORD = 'Cosamona94'
+        PORT = 5432
+        DATABASE = 'postgres'
+        engine = create_engine(f"{DATABASE_TYPE}+{DBAPI}://{USER}:{PASSWORD}@{ENDPOINT}:{PORT}/{DATABASE}")
+        print(engine.connect()) # Check if everything works
+        ```
+        - In this step we can store our data in a table on the RDS dabase:
+        ```python
+            def rds_tables_with_sqlalchemy(self, df_name: pd.DataFrame, table_name: str = 'table_name'):
+        '''
+        This functions stores data as a table on the AWS RDS
+
+        Parameters
+        ----------
+        df_name (DataFrame)
+            It's the data frame that will be store as a table on the RDS
+        table_name (DataFrame)
+            It's the name of created table on the RDS
+        ''' 
+        print('Storing data on RDS...')
+        df_name.to_sql(table_name, self.engine, if_exists='replace')
+        ```
+        - NOTE: Unfortunately, AWS RDS doesn't allow see the tables you created, but to can still access to them using pgAdmin or SQLAlchemy itself.
