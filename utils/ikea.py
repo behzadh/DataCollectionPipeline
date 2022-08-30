@@ -5,6 +5,7 @@ This code is to work on Data Collection Pipeline project
 import os, json, shutil
 import uuid
 import urllib.request
+from xmlrpc.client import boolean
 import boto3
 import pandas as pd
 import utils.rootkey as key
@@ -26,15 +27,30 @@ class Scraper:
     '''
     This class will load a website and accept the cookies if applicable
     '''
-    def __init__(self, url='www.google.co.uk'):
+    def __init__(self, url='www.google.co.uk', headless: bool = False):
         '''
-        This function initialize all attributes used in this class.
+        This function initialize all attributes used in this class and loads the website.
+
+        Parameters
+        ----------
+        url (str)
+            The webpage link
+        headless (bool)
+            It run the code without openning the chrome (headless) if headless is True
         '''
-        self.url = url
+        if headless:
+            options = Options()
+            options.add_argument('--headless')
+            options.add_argument('--disable-gpu')
+            self.driver = webdriver.Chrome(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install(), chrome_options=options) # Access the web driver w/o Chrome pops up
+        else:
+            self.driver = webdriver.Chrome(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install()) # Access the Chrome web driver
+        self.driver.get(url)
+        self.action = ActionChains(self.driver) # Sets action chains
         
     def load_web_and_pass_cookies(self, xpath: str = '//*[@id="onetrust-accept-btn-handler"]'):
         '''
-        This method loads a website and accepts the cookies.
+        This method accepts the cookies.
 
         It has a delay setup (in seconds) to allow the cookies' frame pops up.
 
@@ -42,14 +58,9 @@ class Scraper:
         ----------
         xpath (str)
             The xpath of the Accept Cookies botton
+        headless (bool)
+            It run the code without openning the chrome (headless) if headless is True
         '''
-        options = Options()
-        options.add_argument('--headless')
-        options.add_argument('--disable-gpu')
-        #self.driver = webdriver.Chrome(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install()) # Access the Chrome web driver
-        self.driver = webdriver.Chrome(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install(), chrome_options=options) # Access the web driver w/o Chrome pops up
-        self.driver.get(self.url)
-        self.action = ActionChains(self.driver) # Sets action chains
         delay = 3 # Sets a delay after the webside is loaded to allow the cookies' frame pops up  
         try:
             # Tries to wait for web driver be accessed and the cookies frame pops up. Then, clicks 'accept cookies'
@@ -105,7 +116,7 @@ class StoreData:
         # ---- Asks to store data on RDS ----- #
         user_input_rds = input('Would you like to store your data on AWS RDS? ').lower()
         while user_input_rds not in ['yes', 'y', 'no', 'n']:
-            user_input_rds = input('Your answer should be either yes (y) or no (n)')
+            user_input_rds = input('Your answer should be either yes (y) or no (n): ')
         if user_input_rds=='yes' or user_input_rds=='y': 
             self.store_data_in_rds_table = True
             self.table_name = input('Please enter a name for your table to store your data on AWS RDS? ').lower()
@@ -122,7 +133,7 @@ class StoreData:
         # ------ Asks to store images ------ #
         user_input_save_img = input('Would you like to store your images as well? ').lower()
         while user_input_save_img not in ['yes', 'y', 'no', 'n']:
-            user_input_save_img = input('Your answer should be either yes (y) or no (n)')
+            user_input_save_img = input('Your answer should be either yes (y) or no (n): ')
         if user_input_save_img=='yes' or user_input_save_img=='y': 
             self.save_img = True
 
@@ -212,12 +223,12 @@ class DataCollection(Scraper, StoreData):
     '''
     This class will scrape the web details, download related images and store the data locally
     '''
-    def __init__(self, url='www.google.co.uk'):
+    def __init__(self, url='www.google.co.uk', headless: bool = False):
         '''
         Initialize the __init__ functions of StoreData and Scraper classes
         '''
         StoreData.__init__(self)
-        Scraper.__init__(self, url) 
+        Scraper.__init__(self, url, headless) 
     
     def search_box(self, search_word: str, xpath_value: str='//div[@class="search-field"]'):
         '''
@@ -377,7 +388,7 @@ class DataCollection(Scraper, StoreData):
         S3 or in a table on RDS.
         '''
         self.how_to_store_data() # Asks user how to store their data? (locally, on S3 or RDS)
-        self.load_web_and_pass_cookies() # Loads webpage and pass the cookies
+        self.load_web_and_pass_cookies() # Accepts the cookies 
         self.search_box('desk') # Gets to the search box
         sleep(1)
         self.scrol_down(3) # Scroling down the page by (n) steps
