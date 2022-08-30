@@ -205,18 +205,24 @@ python test_code.py
         ```
         - In this step we can store our data in a table on the RDS dabase:
         ```python
-            def rds_tables_with_sqlalchemy(self, df_name: pd.DataFrame, table_name: str = 'table_name'):
-        '''
-        This functions stores data as a table on the AWS RDS
+        def rds_tables_with_sqlalchemy(self, df_name: pd.DataFrame, table_name: str = 'table_name'):
+            '''
+            This functions stores data as a table on the AWS RDS
 
-        Parameters
-        ----------
-        df_name (DataFrame)
-            It's the data frame that will be store as a table on the RDS
-        table_name (DataFrame)
-            It's the name of created table on the RDS
-        ''' 
-        print('Storing data on RDS...')
-        df_name.to_sql(table_name, self.engine, if_exists='replace')
+            Parameters
+            ----------
+            df_name (DataFrame)
+                It's the data frame that will be store as a table on the RDS
+            table_name (DataFrame)
+                It's the name of created table on the RDS
+            ''' 
+            print('Storing data on RDS...')
+            df_name.to_sql(table_name, self.engine, if_exists='replace')
         ```
         - NOTE: Unfortunately, AWS RDS doesn't allow see the tables you created, but to can still access to them using pgAdmin or SQLAlchemy itself.
+
+        - In order to remove a table from RDS you can run the following command on pgadmine4:
+        ```code 
+        drop table if exists "rds-test";
+        ```
+        
