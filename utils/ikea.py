@@ -71,9 +71,9 @@ class StoreData:
         self.store_data_on_S3 = False
         self.store_data_in_rds_table = False
         self.save_img = False
-        self.id_list_locally = []
-        self.id_list_s3 = []
-        self.id_list_rds = []
+        self.pid_list_locally = []
+        self.pid_list_s3 = []
+        self.pid_list_rds = []
 
     def how_to_store_data(self):
         '''
@@ -86,9 +86,9 @@ class StoreData:
             user_input_locally = input('Your answer should be either yes (y) or no (n): ')
         if user_input_locally=='yes' or user_input_locally=='y': 
             self.store_data_locally = True
-            self.id_list_locally = next(walk('./raw_data/'), (None, None, []))[1] # Returns a list of previouse recordes to avoid data rescraping locally
-            if self.id_list_locally==None:
-                self.id_list_locally = ['id']
+            self.pid_list_locally = next(walk('./raw_data/'), (None, None, []))[1] # Returns a list of previouse recordes to avoid data rescraping locally
+            if self.pid_list_locally==None:
+                self.pid_list_locally = ['id']
         # ----- Asks to store data on S3 ----- #
         user_input_S3 = input('Would you like to store your data on AWS S3? ').lower()
         while user_input_S3 not in ['yes', 'y', 'no', 'n']:
@@ -98,10 +98,10 @@ class StoreData:
             client = boto3.client('s3')
             try:
                 response = client.list_objects_v2(Bucket='datacollectionprojectbucket', Delimiter='/', Prefix='raw_data/')
-                self.id_list_s3 = [obj["Prefix"].lstrip('raw_data/').rstrip('/') for obj in response["CommonPrefixes"]] # Returns a list of previouse recordes to avoid data rescraping on S3
+                self.pid_list_s3 = [obj["Prefix"].lstrip('raw_data/').rstrip('/') for obj in response["CommonPrefixes"]] # Returns a list of previouse recordes to avoid data rescraping on S3
             except:
                 print('No data found on the Amazon S3')
-                self.id_list_s3 = ['id']
+                self.pid_list_s3 = ['id']
         # ---- Asks to store data on RDS ----- #
         user_input_rds = input('Would you like to store your data on AWS RDS? ').lower()
         while user_input_rds not in ['yes', 'y', 'no', 'n']:
@@ -114,11 +114,11 @@ class StoreData:
                 try:
                     product_id_column = conn.execute(f'SELECT "Product_id" FROM {self.table_name}')
                     for p_id in product_id_column:
-                        self.id_list_rds.append(''.join(p_id)) # Returns a list of previouse recordes to avoid data rescraping on RDS
+                        self.pid_list_rds.append(''.join(p_id)) # Returns a list of previouse recordes to avoid data rescraping on RDS
                     product_id_column.close()
                 except:
                     print(f'No table found with {self.table_name} name on the Amazon RDS')
-                    self.id_list_rds = ['id']
+                    self.pid_list_rds = ['id']
         # ------ Asks to store images ------ #
         user_input_save_img = input('Would you like to store your images as well? ').lower()
         while user_input_save_img not in ['yes', 'y', 'no', 'n']:
@@ -396,28 +396,28 @@ class DataCollection(Scraper, StoreData):
             description = self.driver.find_element(By.XPATH, "//span[@class='pip-header-section__description-text']").text # Gets description
             src_img = self._get_href_image() # Gets the image link
             src_multi_img = self._get_href_list_images() # Gets the images links
-            if self.save_img and (product_id not in self.id_list_locally):
+            if self.save_img and (product_id not in self.pid_list_locally):
                 self._download_image(f'{name}_', product_id) # Downloads the image and save it with their name and product id
                 self._download_multiple_images(f'{name}_', product_id) # Downloads the all images of a product and save it with their name, an intiger and product id
             dict_properties.update({'Product_id': [product_id], 'UUID_number': [uuid_number],'Price': [currency + price], 'Name': [name], 'Description': [description], 'Image_link': [src_img], 'Image_all_links': [src_multi_img]})
             print(product_id)
             # ------ Store Data locally -------  #
-            if self.store_data_locally and (product_id not in self.id_list_locally): 
+            if self.store_data_locally and (product_id not in self.pid_list_locally): 
                 self.store_raw_data_locally(dict_properties, product_id) # Locally stores the dictionary 
-                self.id_list_locally.append(product_id)
+                self.pid_list_locally.append(product_id)
             # -------- Store Data on S3 -------- #
-            if self.store_data_on_S3 and (product_id not in self.id_list_s3): 
+            if self.store_data_on_S3 and (product_id not in self.pid_list_s3): 
                 if not self.store_data_locally:
                     self.store_raw_data_locally(dict_properties, product_id) # Locally stores the dictionary
                     self.store_to_S3_boto3(product_id) # Stores data on AWS S3
                     shutil.rmtree(f'./raw_data/{product_id}')
                     print('Record removed successfully after storing it on the S3 bucket')
-                    self.id_list_s3.append(product_id)
+                    self.pid_list_s3.append(product_id)
                 else:
                     self.store_to_S3_boto3(product_id) # Stores data on AWS S3
-                    self.id_list_s3.append(product_id)
-            # ----- Store Data on the RDS ----- #
-            if self.store_data_in_rds_table and (product_id not in self.id_list_rds): 
+                    self.pid_list_s3.append(product_id)
+            # -------- Store Data on RDS ------- #
+            if self.store_data_in_rds_table and (product_id not in self.pid_list_rds): 
                 df_products = self.create_df(dict_properties)
                 self.store_tables_on_rds(df_products, self.table_name)
         self.driver.close()
