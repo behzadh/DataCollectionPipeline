@@ -8,4 +8,7 @@ setup(name='ikea_project',
             'webdriver_manager',
             'boto3',
             'awscli',
+            'sqlalchemy',
+            'pandas',
+            'psycopg2',
             ])

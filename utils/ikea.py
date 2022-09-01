@@ -2,13 +2,13 @@
 This code is to work on Data Collection Pipeline project
 @author: Behzad 
 '''
-import os, json, shutil
+import os, json, shutil, sys
 import uuid
 import urllib.request
-from xmlrpc.client import boolean
 import boto3
 import pandas as pd
-import utils.rootkey as key
+import configparser
+from getpass import getpass
 from os import walk
 from time import sleep
 from sqlalchemy import create_engine
@@ -42,6 +42,11 @@ class Scraper:
             options = Options()
             options.add_argument('--headless')
             options.add_argument('--disable-gpu')
+            options.add_argument('--no-sandbox')
+            options.add_argument("--disable-setuid-sandbox")
+            options.add_argument('--window-size=1920,1080')
+            options.add_argument('--start-maximized')
+            options.add_argument('--disable-dev-shm-usage')
             self.driver = webdriver.Chrome(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install(), chrome_options=options) # Access the web driver w/o Chrome pops up
         else:
             self.driver = webdriver.Chrome(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install()) # Access the Chrome web driver
@@ -85,6 +90,8 @@ class StoreData:
         self.pid_list_locally = []
         self.pid_list_s3 = []
         self.pid_list_rds = []
+        self.config = configparser.ConfigParser()
+        self.config.read('config_file')
 
     def how_to_store_data(self):
         '''
@@ -99,29 +106,36 @@ class StoreData:
             self.store_data_locally = True
             self.pid_list_locally = next(walk('./raw_data/'), (None, None, []))[1] # Returns a list of previouse recordes to avoid data rescraping locally
             if self.pid_list_locally==None:
-                self.pid_list_locally = ['id']
+                self.pid_list_locally = ['pid'] # This is to hack if the product id list is empty, continue with processing
         # ----- Asks to store data on S3 ----- #
         user_input_S3 = input('Would you like to store your data on AWS S3? ').lower()
         while user_input_S3 not in ['yes', 'y', 'no', 'n']:
             user_input_S3 = input('Your answer should be either yes (y) or no (n): ')
         if user_input_S3=='yes' or user_input_S3=='y': 
             self.store_data_on_S3 = True
-            client = boto3.client('s3')
+            if(self.config.get('KEY','AWSAccessKeyId')==''):
+                print('Please fill your config file for S3 Keys to process your data ...')
+                sys.exit()
+            self.s3_client = boto3.client('s3',aws_access_key_id=self.config.get('KEY','AWSAccessKeyId'), aws_secret_access_key= self.config.get('KEY','AWSSecretKey'))
             try:
-                response = client.list_objects_v2(Bucket='datacollectionprojectbucket', Delimiter='/', Prefix='raw_data/')
+                response = self.s3_client.list_objects_v2(Bucket=self.config.get('KEY','AWSBucketName'), Delimiter='/', Prefix='raw_data/')
                 self.pid_list_s3 = [obj["Prefix"].lstrip('raw_data/').rstrip('/') for obj in response["CommonPrefixes"]] # Returns a list of previouse recordes to avoid data rescraping on S3
             except:
                 print('No data found on the Amazon S3')
-                self.pid_list_s3 = ['id']
+                self.pid_list_s3 = ['pid'] # This is to hack if the product id list is empty, continue with processing
         # ---- Asks to store data on RDS ----- #
         user_input_rds = input('Would you like to store your data on AWS RDS? ').lower()
         while user_input_rds not in ['yes', 'y', 'no', 'n']:
             user_input_rds = input('Your answer should be either yes (y) or no (n): ')
         if user_input_rds=='yes' or user_input_rds=='y': 
             self.store_data_in_rds_table = True
+            if(self.config.get('KEY','AWSAccessKeyId')==''):
+                print('Please fill your config file for RDS Keys to process your data ...')
+                sys.exit()
             self.table_name = input('Please enter a name for your table to store your data on AWS RDS? ').lower()
-            engine = self.psycopg2_create_engine()
-            with engine.connect() as conn:
+            #password = getpass('Please enter your password: ')
+            self.engine = self.psycopg2_create_engine()
+            with self.engine.connect() as conn:
                 try:
                     product_id_column = conn.execute(f'SELECT "Product_id" FROM {self.table_name}')
                     for p_id in product_id_column:
@@ -129,7 +143,7 @@ class StoreData:
                     product_id_column.close()
                 except:
                     print(f'No table found with {self.table_name} name on the Amazon RDS')
-                    self.pid_list_rds = ['id']
+                    self.pid_list_rds = ['pid'] # This is to hack if the product id list is empty, continue with processing
         # ------ Asks to store images ------ #
         user_input_save_img = input('Would you like to store your images as well? ').lower()
         while user_input_save_img not in ['yes', 'y', 'no', 'n']:
@@ -165,13 +179,12 @@ class StoreData:
             Defines a spesific directory named 'dir_name' (like production id or unique id) to store data 
         '''
         print('Storing data on S3 ...')
-        s3 = boto3.client('s3',aws_access_key_id=key.AWSAccessKeyId, aws_secret_access_key= key.AWSSecretKey)
-        bucket_name = key.AWSBucketName # It's the bucket name from AWS S3
+        bucket_name = self.config.get('KEY','AWSBucketName') # It's the bucket name from AWS S3
         directory_name = f'raw_data/{dir_name}' 
         for root,dirs,files in os.walk(directory_name):
             #print(root,dirs,files)
             for file in files:
-                s3.upload_file(os.path.join(root,file),bucket_name,os.path.join(root,file))
+                self.s3_client.upload_file(os.path.join(root,file),bucket_name,os.path.join(root,file))
 
     def psycopg2_create_engine(self):
         '''
@@ -182,13 +195,13 @@ class StoreData:
         engine
             Returns engine to access to a postgresql database
         '''
-        DATABASE_TYPE = 'postgresql'
-        DBAPI = 'psycopg2'
-        ENDPOINT = key.ENDPOINT
-        USER = 'postgres'
-        PASSWORD = key.Pass
-        PORT = 5432
-        DATABASE = 'postgres'
+        DATABASE_TYPE = self.config.get('KEY','DATABASE_TYPE')
+        DBAPI = self.config.get('KEY','DBAPI')
+        ENDPOINT = self.config.get('KEY','ENDPOINT')
+        USER = self.config.get('KEY','USER')
+        PASSWORD = self.config.get('KEY','PASSWORD')
+        PORT = self.config.get('KEY','PORT')
+        DATABASE = self.config.get('KEY','DATABASE')
         engine = create_engine(f"{DATABASE_TYPE}+{DBAPI}://{USER}:{PASSWORD}@{ENDPOINT}:{PORT}/{DATABASE}")       
         #print(engine.connect())
         return engine
@@ -216,8 +229,7 @@ class StoreData:
             The name of created table on the RDS
         ''' 
         print('Storing data on RDS ...')
-        ps_engine = self.psycopg2_create_engine()
-        df_name.to_sql(table_name, ps_engine, if_exists='append') # if_exist='replace' or 'append'
+        df_name.to_sql(table_name, self.engine, if_exists='append') # if_exist='replace' or 'append'
 
 class DataCollection(Scraper, StoreData):
     '''
@@ -292,7 +304,7 @@ class DataCollection(Scraper, StoreData):
         str
             the src link of the image
         '''
-        src = self.driver.find_element_by_xpath('//div[@class="pip-product__left-top"]//img[@class="pip-aspect-ratio-image__image"]').get_attribute('src') # Prepares the image source to download
+        src = self.driver.find_element(by=By.XPATH, value='//div[@class="pip-product__left-top"]//img[@class="pip-aspect-ratio-image__image"]').get_attribute('src') # Prepares the image source to download
         return src
     
     def _download_image(self, img_name: str, dir_name: str = '_'):
