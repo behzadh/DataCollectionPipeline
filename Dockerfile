@@ -6,7 +6,11 @@ RUN wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key
     && apt-get install -y google-chrome-stable \
     && wget -O /tmp/chromedriver.zip http://chromedriver.storage.googleapis.com/`curl -sS chromedriver.storage.googleapis.com/LATEST_RELEASE`/chromedriver_linux64.zip \
     && apt-get install -yqq unzip \
+    && apt-get install nano \
     && unzip /tmp/chromedriver.zip chromedriver -d /usr/local/bin/
+
+WORKDIR /workdir
+VOLUME ["/workdir"]
 
 COPY . .
 

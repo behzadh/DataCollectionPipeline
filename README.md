@@ -226,3 +226,172 @@ python test_code.py
         drop table if exists "rds-test";
         ```
         
+### Make a Docker container and run a Docker image on the AWS EC2
+
+> Docker is a set of platform as a service products that use OS-level virtualization to deliver software in packages called containers. The service has both free and premium tiers. In this section, we review all steps to create a Docker image and run it locally as well as pushing the image to DockerHub. Then, will explain how to pull this image from DockerHub and run it on an EC2 instance.
+
+- Create a Docker image:
+    - In order to create a Docker image, first make sure your code is running without any erros.
+    - Install 'Docker' on your machine.
+    - Create a 'Dockerfile' to build your project image locally. Docker file is responsible for creating our image and pre-install all requirments and copy the project to the image.
+    ```dockerfile
+    FROM python:3.7 
+
+    RUN wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add - \
+        && sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google-chrome.list' \
+        && apt-get -y update \
+        && apt-get install -y google-chrome-stable \
+        && wget -O /tmp/chromedriver.zip http://chromedriver.storage.googleapis.com/`curl -sS chromedriver.storage.googleapis.com/LATEST_RELEASE`/chromedriver_linux64.zip \
+        && apt-get install -yqq unzip \
+        && apt-get install nano \
+        && unzip /tmp/chromedriver.zip chromedriver -d /usr/local/bin/
+
+    WORKDIR /workdir
+    VOLUME ["/workdir"]
+
+    COPY . .
+
+    RUN pip install -e .
+
+    CMD ["python", "main.py"]
+    ```
+    First line will let us to load the language that we want to run our code and can call a specific version. It is Python 3.7 in this example. Then pre install the necessary packages related to our project. In this case 'google-chrome-stable' and 'nano' for example. WORKDIR is the mkdir in Docker and VOLLUME is cd.
+    Then we can copy the whole project to the image and install the dependencies to our code. Once these done, we need to call a command 'CMD' to tell how we want to execute our project when we call 'docker run'.
+    - If your project is using selenium to scrap data from Chrome or Firefox you can use the following files:
+        - Google Chrome:
+        ```code
+        These are the steps you have to follow to create the Dockerfile. For each of the steps, you have to figure out what Dockerfile instructions you have to use for each step
+        1. Pull a Python image. For example, python:3.8 will do the job
+        2. Adding trusting keys to apt for repositories, you can download and add them using the following command:
+        `wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add -`
+        3. Add Google Chrome. Use the following command for that
+        `sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google-chrome.list'`
+        4. Update apt:
+        `apt-get -y update`
+        5. And install google chrome:
+        `apt-get install -y google-chrome-stable`
+        6. Now you need to download chromedriver. First you are going to download the zipfile containing the latest chromedriver release:
+        ```
+        wget -O /tmp/chromedriver.zip http://chromedriver.storage.googleapis.com/`curl -sS chromedriver.storage.googleapis.com/LATEST_RELEASE`/chromedriver_linux64.zip
+        ```
+        7. You downloaded the zip file, so you need to unzip it:
+        ```
+        apt-get install -yqq unzip
+        unzip /tmp/chromedriver.zip chromedriver -d /usr/local/bin/
+        ```
+        8. Copy your application in a Docker image
+        9. Install your requirements
+        10. Run your application
+        ```
+        - Firefox:
+        ```
+        FROM python:3.9
+
+        # Update the system and install firefox
+        RUN apt-get update 
+        RUN apt -y upgrade 
+        RUN apt-get install -y firefox-esr
+
+        # get the latest release version of firefox 
+        RUN latest_release=$(curl -sS https://api.github.com/repos/mozilla/geckodriver/releases/latest \
+            | grep tag_name | sed -E 's/.*"([^"]+)".*/\1/') && \
+            # Download the latest release of geckodriver
+            wget https://github.com/mozilla/geckodriver/releases/download/$latest_release/geckodriver-$latest_release-linux32.tar.gz \
+            # extract the geckodriver
+            && tar -xvzf geckodriver* \
+            # add executable permissions to the driver
+            && chmod +x geckodriver \
+            # Move gecko driver in the system path
+            && mv geckodriver /usr/local/bin
+
+        COPY . . 
+
+        RUN pip install -r requirements.txt
+
+        CMD ["python", "test.py"]
+        ```
+    - To build the docker image, run the following command:
+    ```
+    docker build -t user_dockerhub/image_name .
+    ```
+    It is better to put your docerhub user in front of your image in case you want to push your image to DockerHub but it's not required.
+    - Now you can run your image by:
+    ```code
+    docker run -it user_dockerhub/image_name
+    ```
+    - Usefull Docker commands:
+        1. to see the docker images: 
+        ```code
+        docker image ls
+        ```
+        2. to see the docker containers: 
+        ```code
+        docker ps -aq
+        ```
+        3. to remove the docker container(s): 
+        ```code
+        docker rm -f container_id
+        ```
+        or to delete all containers:
+        ```
+        docker rm -vf $(docker ps -aq)
+        ```
+        4. to remove the docker image(s): 
+        ```code
+        docker rmi -f image_id
+        ```
+        or to delete all images:
+        ```
+        docker rmi -f $(docker images -aq)
+        ```
+        5. to check the codes inside an image:
+        ```code
+        docker run -it user_dockerhub/image_name bash
+        ```
+- Push the image to the DockerHub:
+    - First login to your accaount:
+    ```code
+    docker login
+    ```
+    - Create a repository with the same name as your image: user_dockerhub/image_name
+    - Run this command:
+    ```code
+    docker push user_dockerhub/image_name
+    ```
+- Pull the image from DockerHub:
+``` code
+docker pull user_dockerhub/image_name
+```
+- Create an EC2 instance:
+    Navigate to the AWS dashboard and sign up an new EC2 instance to deploy your project.
+    1. Select a region. 
+    2. Navigate to the EC2 Console. 
+    3. Create the EC2 instance. 
+    4. Choose an instance type. We use ubuntu for this project.
+    5. Configure storage. 
+    6. Tag the instance. 
+    7. Build in security. 
+    8. Enable SSH access with a key.
+
+- Now we can access to our EC2 instance by an SSH connection:
+```code 
+ssh -i "your_ec2_key.pem" ubuntu@ec2_ip_.compute-1.amazonaws.com 
+```
+- We are ready to pull our docker image here and run our project from here.
+- In order to store data from the docker image we can mount a volume on EC2 and connect it to our image:
+    1. create a folder on your EC2: 
+    ```code 
+    sudo mkdir raw_data
+    ```
+    2. mount this volume to your image work directory:
+    ```code
+    sudo docker run  -v /home/ubuntu/raw_data:/workdir/raw_data -it user_dockerhub/image_name
+    ```
+
+### Monitoring and Alerting
+
+> 
+
+- 
+
+
