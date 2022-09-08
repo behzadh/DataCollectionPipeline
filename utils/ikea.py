@@ -53,7 +53,7 @@ class Scraper:
         self.driver.get(url)
         self.action = ActionChains(self.driver) # Sets action chains
         
-    def load_web_and_pass_cookies(self, xpath: str = '//*[@id="onetrust-accept-btn-handler"]'):
+    def pass_cookies(self, xpath: str = '//*[@id="onetrust-accept-btn-handler"]'):
         '''
         This method accepts the cookies.
 
@@ -63,12 +63,10 @@ class Scraper:
         ----------
         xpath (str)
             The xpath of the Accept Cookies botton
-        headless (bool)
-            It run the code without openning the chrome (headless) if headless is True
         '''
         delay = 3 # Sets a delay after the webside is loaded to allow the cookies' frame pops up  
         try:
-            # Tries to wait for web driver be accessed and the cookies frame pops up. Then, clicks 'accept cookies'
+            # Tries to wait for web driver to be accessed and the cookies frame pops up. Then, clicks 'accept cookies'
             accept_cookies_button = WebDriverWait(self.driver, delay).until(EC.presence_of_element_located((By.XPATH, xpath)))
             accept_cookies_button.click()
             sleep(0.5)
@@ -90,12 +88,12 @@ class StoreData:
         self.pid_list_locally = []
         self.pid_list_s3 = []
         self.pid_list_rds = []
-        self.config = configparser.ConfigParser()
-        self.config.read('config_file')
+        self.config = configparser.ConfigParser() # Loads a config file to pass the passwords for S3 and RDS connections
+        self.config.read('config_file') # Reads the config file
 
     def how_to_store_data(self):
         '''
-        This function asks the user 'how to store the data?'. Once selected, it checks if the data has been already stored, to avoid rescarping.
+        This function asks the user 'how to store their data?'. Once selected, it checks if the data has been already stored, to avoid rescarping.
         '''
         print('\nHow do you like to store your data? Please answer the following questions with yes (y) or no (n):\n')
         # ---- Asks to store data locally ---- #
@@ -104,6 +102,7 @@ class StoreData:
             user_input_locally = input('Your answer should be either yes (y) or no (n): ')
         if user_input_locally=='yes' or user_input_locally=='y': 
             self.store_data_locally = True
+            # Checks if the data is already exist. 
             self.pid_list_locally = next(walk('./raw_data/'), (None, None, []))[1] # Returns a list of previouse recordes to avoid data rescraping locally
             if self.pid_list_locally==None:
                 self.pid_list_locally = ['pid'] # This is to hack if the product id list is empty, continue with processing
@@ -116,6 +115,7 @@ class StoreData:
             if(self.config.get('KEY','AWSAccessKeyId')==''):
                 print('Please fill your config file for S3 Keys to process your data ...')
                 sys.exit()
+            # Checks if the data is already exist.
             self.s3_client = boto3.client('s3',aws_access_key_id=self.config.get('KEY','AWSAccessKeyId'), aws_secret_access_key= self.config.get('KEY','AWSSecretKey'))
             try:
                 response = self.s3_client.list_objects_v2(Bucket=self.config.get('KEY','AWSBucketName'), Delimiter='/', Prefix='raw_data/')
@@ -134,6 +134,7 @@ class StoreData:
                 sys.exit()
             self.table_name = input('Please enter a name for your table to store your data on AWS RDS? ').lower()
             #password = getpass('Please enter your password: ')
+            # Checks if the data is already exist.
             self.engine = self.psycopg2_create_engine()
             with self.engine.connect() as conn:
                 try:
@@ -233,7 +234,7 @@ class StoreData:
 
 class DataCollection(Scraper, StoreData):
     '''
-    This class will scrape the web details, download related images and store the data locally
+    This class will scrape the web details, download related images and store the data locally or/and on AWS cloud
     '''
     def __init__(self, url='www.google.co.uk', headless: bool = False):
         '''
@@ -392,21 +393,21 @@ class DataCollection(Scraper, StoreData):
     
     def scrape_data(self):
         '''
-        This function gets all the methods and actions to extrac/scrape all the needed information from a website.
+        This function gets all the methods and actions to extrac/scrape all the necessary information from a website.
 
-        It first load the Ikea page, get to search box and types a keyword to be searched (like 'desk').
-        Then scrols down and gets the URL of all products available, accessing each of them and extracting 
+        It first loads the Ikea page, gets to search box and types a keyword to be searched (like 'desk').
+        Then scrols down, and gets the URL of all products available, accessing each of them and extracting 
         data for each product. The details will be stored in a dictionary. Then, stores data locally, on AWS 
         S3 or in a table on RDS.
         '''
         self.how_to_store_data() # Asks user how to store their data? (locally, on S3 or RDS)
-        self.load_web_and_pass_cookies() # Accepts the cookies 
-        self.search_box('desk') # Gets to the search box
+        self.pass_cookies() # Accepts the cookies 
+        self.search_box('desk') # Gets to the search box and types the keyword (ex 'desk')
         sleep(1)
         self.scrol_down(3) # Scroling down the page by (n) steps
-        #all_links_list = self._get_product_links() # Gets all links in the first page
-        all_links_list = self._get_more_product_links(2) # # Gets all links in multiple (n) pages
-        for link in all_links_list[:3]: ## temporary sets to first 4 products
+        #links_list = self._get_product_links() # Gets all links in the first page
+        links_list = self._get_more_product_links(2) # # Gets all links in multiple (n) pages
+        for link in links_list[:3]: ## temporary sets to first 4 products
             dict_properties = {} # Creats a dictionary
             self.driver.get(link) # Gets each link and open it
             sleep(0.5)

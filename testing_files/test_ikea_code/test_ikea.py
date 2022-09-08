@@ -9,7 +9,7 @@ class DataCollectionTest(unittest.TestCase):
 
     def setUp(self) -> None:
         self.scraper_obj = DataCollection(url="https://www.ikea.com/gb/en/")
-        self.scraper_obj.load_web_and_pass_cookies()
+        self.scraper_obj.pass_cookies()
         return super().setUp()
 
     def test_get_product_links(self):
