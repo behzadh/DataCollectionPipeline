@@ -1,8 +1,10 @@
 '''
 This code is to work on Data Collection Pipeline project
-@author: Behzad 
+@author:    Behzad 
+@date:      9 September 2022
 '''
 import os, json, shutil, sys
+import argparse
 import uuid
 import urllib.request
 import boto3
@@ -24,10 +26,15 @@ from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.chrome.options import Options
 
 class Scraper:
+
     '''
-    This class will load a website and accept the cookies if applicable
+    This class will load a website and accept the cookies if applicable and has the following methods:
+
+    __init__(self, url='https://www.ikea.com/gb/en/', headless: bool = False)
+    accept_cookies(self, xpath: str = '//*[@id="onetrust-accept-btn-handler"]')
     '''
-    def __init__(self, url='www.google.co.uk', headless: bool = False):
+    def __init__(self, url='https://www.ikea.com/gb/en/', headless: bool = False):
+
         '''
         This function initialize all attributes used in this class and loads the website.
 
@@ -52,8 +59,9 @@ class Scraper:
             self.driver = webdriver.Chrome(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install()) # Access the Chrome web driver
         self.driver.get(url)
         self.action = ActionChains(self.driver) # Sets action chains
-        
-    def pass_cookies(self, xpath: str = '//*[@id="onetrust-accept-btn-handler"]'):
+    
+    def accept_cookies(self, xpath: str = '//*[@id="onetrust-accept-btn-handler"]'):
+
         '''
         This method accepts the cookies.
 
@@ -74,10 +82,24 @@ class Scraper:
             print("Loading took too much time!")
 
 class StoreData:
+
     '''
-    This class is responsible for storing data locally or on AWS cloud
+    This class is responsible for storing data locally or on AWS cloud and has the following methods:
+
+    __init__(self)
+    check_config_file(self)
+    check_data_exist_locally(self)
+    check_images_exist(self)
+    check_data_exist_on_s3(self)
+    check_data_exist_on_rds(self)
+    user_store_data_options(self)
+    store_raw_data_locally(self, dict: dict, dir_name: str = '_')
+    store_to_S3_boto3(self, dir_name: str = '_')
+    psycopg2_create_engine(self)
+    store_tables_on_rds(self, df_name: pd.DataFrame)
     '''
     def __init__(self):
+
         '''
         This function initialize all attributes.
         '''
@@ -88,73 +110,115 @@ class StoreData:
         self.pid_list_locally = []
         self.pid_list_s3 = []
         self.pid_list_rds = []
+        self.pid_list_images = []
         self.config = configparser.ConfigParser() # Loads a config file to pass the passwords for S3 and RDS connections
         self.config.read('config_file') # Reads the config file
 
-    def how_to_store_data(self):
-        '''
-        This function asks the user 'how to store their data?'. Once selected, it checks if the data has been already stored, to avoid rescarping.
-        '''
-        print('\nHow do you like to store your data? Please answer the following questions with yes (y) or no (n):\n')
-        # ---- Asks to store data locally ---- #
-        user_input_locally = input('Would you like to store your data locally? ').lower()
-        while user_input_locally not in ['yes', 'y', 'no', 'n']:
-            user_input_locally = input('Your answer should be either yes (y) or no (n): ')
-        if user_input_locally=='yes' or user_input_locally=='y': 
-            self.store_data_locally = True
-            # Checks if the data is already exist. 
-            self.pid_list_locally = next(walk('./raw_data/'), (None, None, []))[1] # Returns a list of previouse recordes to avoid data rescraping locally
-            if self.pid_list_locally==None:
-                self.pid_list_locally = ['pid'] # This is to hack if the product id list is empty, continue with processing
-        # ----- Asks to store data on S3 ----- #
-        user_input_S3 = input('Would you like to store your data on AWS S3? ').lower()
-        while user_input_S3 not in ['yes', 'y', 'no', 'n']:
-            user_input_S3 = input('Your answer should be either yes (y) or no (n): ')
-        if user_input_S3=='yes' or user_input_S3=='y': 
-            self.store_data_on_S3 = True
-            if(self.config.get('KEY','AWSAccessKeyId')==''):
-                print('Please fill your config file for S3 Keys to process your data ...')
-                sys.exit()
-            # Checks if the data is already exist.
-            self.s3_client = boto3.client('s3',aws_access_key_id=self.config.get('KEY','AWSAccessKeyId'), aws_secret_access_key= self.config.get('KEY','AWSSecretKey'))
-            try:
-                response = self.s3_client.list_objects_v2(Bucket=self.config.get('KEY','AWSBucketName'), Delimiter='/', Prefix='raw_data/')
-                self.pid_list_s3 = [obj["Prefix"].lstrip('raw_data/').rstrip('/') for obj in response["CommonPrefixes"]] # Returns a list of previouse recordes to avoid data rescraping on S3
-            except:
-                print('No data found on the Amazon S3')
-                self.pid_list_s3 = ['pid'] # This is to hack if the product id list is empty, continue with processing
-        # ---- Asks to store data on RDS ----- #
-        user_input_rds = input('Would you like to store your data on AWS RDS? ').lower()
-        while user_input_rds not in ['yes', 'y', 'no', 'n']:
-            user_input_rds = input('Your answer should be either yes (y) or no (n): ')
-        if user_input_rds=='yes' or user_input_rds=='y': 
-            self.store_data_in_rds_table = True
-            if(self.config.get('KEY','AWSAccessKeyId')==''):
-                print('Please fill your config file for RDS Keys to process your data ...')
-                sys.exit()
-            self.table_name = input('Please enter a name for your table to store your data on AWS RDS? ').lower()
-            #password = getpass('Please enter your password: ')
-            # Checks if the data is already exist.
-            self.engine = self.psycopg2_create_engine()
-            with self.engine.connect() as conn:
-                try:
-                    product_id_column = conn.execute(f'SELECT "Product_id" FROM {self.table_name}')
-                    for p_id in product_id_column:
-                        self.pid_list_rds.append(''.join(p_id)) # Returns a list of previouse recordes to avoid data rescraping on RDS
-                    product_id_column.close()
-                except:
-                    print(f'No table found with {self.table_name} name on the Amazon RDS')
-                    self.pid_list_rds = ['pid'] # This is to hack if the product id list is empty, continue with processing
-        # ------ Asks to store images ------ #
-        user_input_save_img = input('Would you like to store your images as well? ').lower()
-        while user_input_save_img not in ['yes', 'y', 'no', 'n']:
-            user_input_save_img = input('Your answer should be either yes (y) or no (n): ')
-        if user_input_save_img=='yes' or user_input_save_img=='y': 
-            self.save_img = True
+    def check_config_file(self):
 
+        '''
+        Checks to have correct config file with keys defined
+        '''
+        if(self.config.get('KEY','AWSAccessKeyId')==''):
+            print('Please fill your config file for S3 Keys to process your data ...')
+            sys.exit()
+        elif(self.config.get('KEY','DATABASE_TYPE')==''):
+            print('Please fill your config file for RDS Keys to process your data ...')
+            sys.exit()
+
+    def check_data_exist_locally(self):
+
+        '''
+        Checks if the data is already exist locally to avoid rescraping
+        '''
+        self.pid_list_locally = next(walk(f'./{self.folder_name}/'), (None, None, []))[1] # Returns a list of previouse recordes to avoid data rescraping locally
+        if self.pid_list_locally==None:
+            self.pid_list_locally = ['pid'] # This is to hack if the product id list is empty, continue with processing
+
+    def check_images_exist(self):
+
+        '''
+        Checks if the data is already exist locally to avoid rescraping
+        '''
+        self.pid_list_images = next(walk(f'./{self.folder_name}/images'), (None, None, []))[1] # Returns a list of previouse recordes to avoid data rescraping locally
+        if self.pid_list_images==None:
+            self.pid_list_images = ['pid'] # This is to hack if the product id list is empty, continue with processing
+
+    def check_data_exist_on_s3(self):
+        
+        '''
+        Checks if the data is already exist on AWS S3 to avoid rescraping
+        '''
+        self.check_config_file()
+        self.s3_client = boto3.client('s3',aws_access_key_id=self.config.get('KEY','AWSAccessKeyId'), aws_secret_access_key= self.config.get('KEY','AWSSecretKey'))
+        try:
+            response = self.s3_client.list_objects_v2(Bucket=self.config.get('KEY','AWSBucketName'), Delimiter='/', Prefix=f'{self.folder_name}/')
+            self.pid_list_s3 = [obj["Prefix"].lstrip(f'{self.folder_name}/').rstrip('/') for obj in response["CommonPrefixes"]] # Returns a list of previouse recordes to avoid data rescraping on S3
+        except:
+            print('No data found on the Amazon S3')
+            self.pid_list_s3 = ['pid'] # This is to hack if the product id list is empty, continue with processing
+
+    def check_data_exist_on_rds(self):
+
+        '''
+        Checks if the data is already exist on AWS RDS to avoid rescraping
+        ''' 
+        self.check_config_file()
+        self.engine = self.psycopg2_create_engine()
+        with self.engine.connect() as conn:
+            try:
+                product_id_column = conn.execute(f'SELECT "Product_id" FROM {self.table_name}')
+                for p_id in product_id_column:
+                    self.pid_list_rds.append(''.join(p_id)) # Returns a list of previouse recordes to avoid data rescraping on RDS
+                product_id_column.close()
+            except:
+                print(f'No table found with {self.table_name} name on the Amazon RDS')
+                self.pid_list_rds = ['pid'] # This is to hack if the product id list is empty, continue with processing
+
+    def user_store_data_options(self):
+
+        '''
+        Gets arguments options from user to store data locally, on S3 or/and RDS
+        '''
+        parser = argparse.ArgumentParser()
+        parser.add_argument('--local', action='store_true', default=False, help='Store data locally')
+        parser.add_argument('--s3', action='store_true', default=False, help='Store data on AWS S3')
+        parser.add_argument('--rds', action='store_true', default=False, help='Store data on RDS')
+        parser.add_argument('--imgs', action='store_true', default=False, help='Store images')
+
+        parser.add_argument('--folder', type=str, default='raw_data', help='Folder\'s name to store data (ex: raw_data)')
+        parser.add_argument('--word', type=str, default='desk', help='word to be typed in search bar (ex: desk)')
+        parser.add_argument('--table', type=str, default='table_name', help='user rds table (ex: table_name)')
+        
+        args = parser.parse_args()
+        self.search_word = args.word
+
+        if args.local:
+            self.folder_name = args.folder
+            self.store_data_locally = True
+            self.check_data_exist_locally()
+        else:
+            print('To store data locally add --local')
+        if args.s3:
+            self.store_data_on_S3 = True
+            self.check_data_exist_on_s3()
+        else:
+            print('To store data on AWS S3 add --s3')
+        if args.rds:
+            self.table_name = args.table
+            self.store_data_in_rds_table = True
+            self.check_data_exist_on_rds()
+        else:
+            print('To store data on RDS add --rds')
+        if args.imgs:
+            self.save_img = True
+            self.check_images_exist()
+        else:
+            print('To store images add --imgs')
         print('\nData scraping is in progress ...\n')
         
     def store_raw_data_locally(self, dict: dict, dir_name: str = '_'):
+
         '''
         This function used to store raw data locally. It stores each product dictionary as a jsone file.
 
@@ -166,11 +230,12 @@ class StoreData:
             Defines a spesific directory named 'dir_name' (like production id or unique id) to store the dictionary as a json file 
         '''
         print('Storing data locally ...')
-        if not os.path.exists(f'raw_data/{dir_name}'): os.makedirs(f'raw_data/{dir_name}') # Creats 'raw_data and id' folders if it is not exist
-        with open(f'./raw_data/{dir_name}/data.json', 'w') as fp:
+        if not os.path.exists(f'{self.folder_name}/{dir_name}'): os.makedirs(f'{self.folder_name}/{dir_name}') # Creats folders and subfolders if they're not exist
+        with open(f'./{self.folder_name}/{dir_name}/data.json', 'w') as fp:
             json.dump(dict, fp) # Saves dict in a json file
 
     def store_to_S3_boto3(self, dir_name: str = '_'):
+
         '''
         This function used to store data on the AWS S3 using boto3 module. It stores data on AWS S3 and keeps the same structure as we store data locally.
 
@@ -181,13 +246,14 @@ class StoreData:
         '''
         print('Storing data on S3 ...')
         bucket_name = self.config.get('KEY','AWSBucketName') # It's the bucket name from AWS S3
-        directory_name = f'raw_data/{dir_name}' 
+        directory_name = f'{self.folder_name}/{dir_name}' 
         for root,dirs,files in os.walk(directory_name):
             #print(root,dirs,files)
             for file in files:
                 self.s3_client.upload_file(os.path.join(root,file),bucket_name,os.path.join(root,file))
 
     def psycopg2_create_engine(self):
+
         '''
         This method will create a psycopg2 engine 
         
@@ -206,19 +272,9 @@ class StoreData:
         engine = create_engine(f"{DATABASE_TYPE}+{DBAPI}://{USER}:{PASSWORD}@{ENDPOINT}:{PORT}/{DATABASE}")       
         #print(engine.connect())
         return engine
+    
+    def store_tables_on_rds(self, df_name: pd.DataFrame):
 
-    def create_df(self, dict: dict):
-        '''
-        This functions creates a pandas DataFrame from a given dictionary
-
-        Parameters
-        ----------
-        dict (dict)
-            Gets a dictionary to convert it to a DataFrame
-        ''' 
-        return pd.DataFrame(dict)
-
-    def store_tables_on_rds(self, df_name: pd.DataFrame, table_name: str = 'table_name'):
         '''
         This functions stores data as a table on the AWS RDS
 
@@ -226,17 +282,30 @@ class StoreData:
         ----------
         df_name (DataFrame)
             It's the data frame that will be stored as a table on the RDS
-        table_name (DataFrame)
-            The name of created table on the RDS
         ''' 
         print('Storing data on RDS ...')
-        df_name.to_sql(table_name, self.engine, if_exists='append') # if_exist='replace' or 'append'
+        df_name.to_sql(self.table_name, self.engine, if_exists='append') # if_exist='replace' or 'append'
 
 class DataCollection(Scraper, StoreData):
+
     '''
-    This class will scrape the web details, download related images and store the data locally or/and on AWS cloud
+    This class will scrape the web details, download related images and store the data locally or/and on AWS cloud and has the following methods:
+
+    __init__(self, url='https://www.ikea.com/gb/en/', headless: bool = False)
+    search_box(self, search_word: str, xpath_value: str='//div[@class="search-field"]')
+    get_product_links(self, num_page: int = 1) 
+    _get_href_image(self)
+    _download_image(self, img_name: str, dir_name: str = '_')
+    _get_href_list_images(self)
+    _download_multiple_images(self, img_name: str, dir_name: str = '_')
+    scrol_down(self, steps: int = 2, speed: int = 300)
+    generate_uuid(self)
+    retrieve_product_details(self)
+    store_data_final(self)
+    scrape_data(self)
     '''
-    def __init__(self, url='www.google.co.uk', headless: bool = False):
+    def __init__(self, url='https://www.ikea.com/gb/en/', headless: bool = False):
+
         '''
         Initialize the __init__ functions of StoreData and Scraper classes
         '''
@@ -244,6 +313,7 @@ class DataCollection(Scraper, StoreData):
         Scraper.__init__(self, url, headless) 
     
     def search_box(self, search_word: str, xpath_value: str='//div[@class="search-field"]'):
+
         '''
         This functions finds the search box and types the search_word to be found
 
@@ -256,47 +326,36 @@ class DataCollection(Scraper, StoreData):
         '''
         searchTextbox = self.driver.find_element(by=By.XPATH, value=xpath_value) # Finds the search text box position
         self.action.move_to_element(searchTextbox).click().send_keys(search_word).send_keys(Keys.RETURN).perform() # Types a word to the search box
-    
-    def _get_product_links(self) -> list:
-        '''
-        This Function gets all links of elements/products in the first page of a website
 
-        Returns
-        -------
-        list
-            Returns the links (href) of all products
-        '''
-        links_list = []
-        sleep(2)
-        # Find all elements in a container or a table 
-        result_container = self.driver.find_elements(by=By.XPATH, value="//section[@class='results']//div[@class='serp-grid__item search-grid__item product-fragment']/a")
-        for result in result_container:
-            # Loops on all the elements of the container to extract their links
-            link = result.get_attribute("href") # Gets the web link
-            links_list.append(link)
-            #print(link)
-        return links_list
+    def get_product_links(self, num_page: int = 1) -> list:
 
-    def _get_more_product_links(self, num_page: int = 2) -> list:
         '''
-        This function gets more links by loading more elements or going to the next pages (if applicable)
+        This function gets products links and can be set to go to the next pages (if applicable)
 
         Parameters
         ----------
             num_page (int): The number of pages that need to be extracted
         '''
-        big_list = []
+        more_link_list = []
         for _ in range(num_page):
-            big_list.append(self._get_product_links())
+            links_list = []
+            sleep(3)
+            # Find all elements in a container or a table 
+            result_container = self.driver.find_elements(by=By.XPATH, value="//section[@class='results']//div[@class='serp-grid__item search-grid__item product-fragment']/a")
+            for result in result_container:
+                # Loops on all the elements of the container to extract their links
+                link = result.get_attribute("href") # Gets the web link
+                links_list.append(link)
+            more_link_list.append(links_list)
             try:
                 self.driver.find_element(By.XPATH, "//a[@class='show-more__button button button--secondary button--small']").click() # Clicks on next page or loading more products
-                sleep(2)
             except:
                 pass
-        more_link_list = list(set([k for sub in big_list for k in sub])) # flatten and unique the list of links
-        return more_link_list 
- 
-    def _get_href_image(self):
+        all_link_list = list(set([k for sub in more_link_list for k in sub])) # flatten and unique the list of links
+        return all_link_list 
+    
+    def _get_href_image(self): 
+
         '''
         This function will return the link of main image.
 
@@ -309,6 +368,7 @@ class DataCollection(Scraper, StoreData):
         return src
     
     def _download_image(self, img_name: str, dir_name: str = '_'):
+        
         '''
         This function is used to download the main image for each product and save it to the 'images' folder
 
@@ -320,14 +380,15 @@ class DataCollection(Scraper, StoreData):
             Gives the image name a spesific id (like production id or unique id) as well as creating a parent directory named dir_name for the 'images' folder  
         '''
         src = self._get_href_image()
-        if not os.path.exists(f'raw_data/{dir_name}/images'): os.makedirs(f'raw_data/{dir_name}/images') # Creats 'raw_data, {id} and images' folders if it is not exist
+        if not os.path.exists(f'{self.folder_name}/{dir_name}/image'): os.makedirs(f'{self.folder_name}/{dir_name}/image') # Creats 'folder_name, {id} and image' folders if it is not exist
         sleep(1)
         try:
-            urllib.request.urlretrieve(src, f"./raw_data/{dir_name}/images/{img_name}_{dir_name}.jpg") # saves images to the folder
+            urllib.request.urlretrieve(src, f"./{self.folder_name}/{dir_name}/image/{img_name}_{dir_name}.jpg") # saves images to the folder
         except:
             print(f"Couldn't download the main image: {src} for {dir_name} product")
 
     def _get_href_list_images(self):
+
         '''
         This function will return the links of images for each product.
         
@@ -346,20 +407,22 @@ class DataCollection(Scraper, StoreData):
         return img_links_list
 
     def _download_multiple_images(self, img_name: str, dir_name: str = '_') -> list:
+        
         '''
         This function is used to download multiple images of a product and save them to the 'multiple_images' folder
 
         See help(__download_image) for accurate signature
         '''
         img_links_list = self._get_href_list_images()
-        if not os.path.exists(f'raw_data/{dir_name}/multiple_images'): os.makedirs(f'raw_data/{dir_name}/multiple_images') # Creats 'raw_data, {id} and multiple_images' folders if it is not exist
+        if not os.path.exists(f'{self.folder_name}/{dir_name}/images'): os.makedirs(f'{self.folder_name}/{dir_name}/images') # Creats 'folder_name, {id} and images' folders if it is not exist
         for k,link in enumerate(img_links_list):
             try:
-                urllib.request.urlretrieve(link, f"./raw_data/{dir_name}/multiple_images/{img_name}_{k}_{dir_name}.jpg") # saves images to the folder
+                urllib.request.urlretrieve(link, f"./{self.folder_name}/{dir_name}/images/{img_name}_{k}_{dir_name}.jpg") # saves images to the folder
             except:
                 print(f"Couldn't download this image: {link} for {dir_name} product")
-
+    
     def scrol_down(self, steps: int = 2, speed: int = 300):
+
         '''
         This function is an action to scrol down a page slowly and step by step like a human.
         Parameters
@@ -390,8 +453,65 @@ class DataCollection(Scraper, StoreData):
             A singal UUID
         '''
         return str(uuid.uuid4())
-    
+
+    def retrieve_product_details(self):
+        
+        '''
+        This method retrieve product data
+
+        Returns
+        -------
+        dict
+            A product dictionary
+        '''
+        dict_properties = {}
+        product_id = self.driver.find_element(By.XPATH, "//div[@class='pip-product__subgrid product-pip js-product-pip']").get_attribute('data-product-id') # Gets product id
+        uuid_number = self.generate_uuid() # Generates universal unique ids
+        price = self.driver.find_element(By.XPATH, "//span[@class='pip-price__integer']").text # Gets price
+        currency = self.driver.find_element(By.XPATH, "//span[@class='pip-price__currency-symbol pip-price__currency-symbol--leading\n        pip-price__currency-symbol--superscript']").text # Gets currency
+        name = self.driver.find_element(By.XPATH, "//span[@class='pip-header-section__title--big notranslate']").text # Gets name
+        description = self.driver.find_element(By.XPATH, "//span[@class='pip-header-section__description-text']").text # Gets description
+        src_img = self._get_href_image() # Gets the image link
+        src_multi_img = self._get_href_list_images() # Gets the images links
+        # -------- Product dictionary -------- #
+        dict_properties.update({'Product_id': [product_id], 'UUID_number': [uuid_number],'Price': [currency + price], 'Name': [name], 'Description': [description], 'Image_link': [src_img], 'Image_all_links': [src_multi_img]})
+        print(product_id)
+        return dict_properties
+
+    def store_data_final(self):
+
+        '''
+        This method will store data when is requested
+        '''
+        dict_properties = self.retrieve_product_details()
+        product_id = dict_properties['Product_id'][0]
+        name = dict_properties['Name'][0].replace(" ", "")
+        # ------- Store Data locally ------- #
+        if self.store_data_locally and (product_id not in self.pid_list_locally): 
+            self.store_raw_data_locally(dict_properties, product_id) 
+            self.pid_list_locally.append(product_id)
+        # ---------- Store images ---------- #
+        if self.save_img and (product_id not in self.pid_list_images): 
+            self._download_image(f'{name}_', product_id) 
+            self._download_multiple_images(f'{name}_', product_id) 
+        # -------- Store Data on S3 -------- #
+        if self.store_data_on_S3 and (product_id not in self.pid_list_s3): 
+            if not self.store_data_locally:
+                self.store_raw_data_locally(dict_properties, product_id) # Locally stores the dictionary
+                self.store_to_S3_boto3(product_id) 
+                shutil.rmtree(f'./{self.folder_name}/{product_id}') # Removes directory after uploading on the S3 
+                print('Record removed successfully after storing it on the S3 bucket')
+                self.pid_list_s3.append(product_id)
+            else:
+                self.store_to_S3_boto3(product_id) 
+                self.pid_list_s3.append(product_id)
+        # -------- Store Data on RDS ------- #
+        if self.store_data_in_rds_table and (product_id not in self.pid_list_rds): 
+            df_products = pd.DataFrame(dict_properties)
+            self.store_tables_on_rds(df_products)
+
     def scrape_data(self):
+
         '''
         This function gets all the methods and actions to extrac/scrape all the necessary information from a website.
 
@@ -400,48 +520,14 @@ class DataCollection(Scraper, StoreData):
         data for each product. The details will be stored in a dictionary. Then, stores data locally, on AWS 
         S3 or in a table on RDS.
         '''
-        self.how_to_store_data() # Asks user how to store their data? (locally, on S3 or RDS)
-        self.pass_cookies() # Accepts the cookies 
-        self.search_box('desk') # Gets to the search box and types the keyword (ex 'desk')
+        self.user_store_data_options() 
+        self.accept_cookies() 
+        self.search_box(f'{self.search_word}') 
         sleep(1)
-        self.scrol_down(3) # Scroling down the page by (n) steps
-        #links_list = self._get_product_links() # Gets all links in the first page
-        links_list = self._get_more_product_links(2) # # Gets all links in multiple (n) pages
-        for link in links_list[:3]: ## temporary sets to first 4 products
-            dict_properties = {} # Creats a dictionary
+        self.scrol_down(1)
+        links_list = self.get_product_links(2) # Gets all links in multiple (n) pages
+        for link in links_list[:3]: ## temporary sets to first 3 products 
             self.driver.get(link) # Gets each link and open it
             sleep(0.5)
-            # -------- Product details -------- #
-            product_id = self.driver.find_element(By.XPATH, "//div[@class='pip-product__subgrid product-pip js-product-pip']").get_attribute('data-product-id') # Gets product id
-            uuid_number = self.generate_uuid() # Generates universal unique ids
-            price = self.driver.find_element(By.XPATH, "//span[@class='pip-price__integer']").text # Gets price
-            currency = self.driver.find_element(By.XPATH, "//span[@class='pip-price__currency-symbol pip-price__currency-symbol--leading\n        pip-price__currency-symbol--superscript']").text # Gets currency
-            name = self.driver.find_element(By.XPATH, "//span[@class='pip-header-section__title--big notranslate']").text # Gets name
-            description = self.driver.find_element(By.XPATH, "//span[@class='pip-header-section__description-text']").text # Gets description
-            src_img = self._get_href_image() # Gets the image link
-            src_multi_img = self._get_href_list_images() # Gets the images links
-            if self.save_img and (product_id not in self.pid_list_locally):
-                self._download_image(f'{name}_', product_id) # Downloads the image and save it with their name and product id
-                self._download_multiple_images(f'{name}_', product_id) # Downloads the all images of a product and save it with their name, an intiger and product id
-            dict_properties.update({'Product_id': [product_id], 'UUID_number': [uuid_number],'Price': [currency + price], 'Name': [name], 'Description': [description], 'Image_link': [src_img], 'Image_all_links': [src_multi_img]})
-            print(product_id)
-            # ------ Store Data locally -------  #
-            if self.store_data_locally and (product_id not in self.pid_list_locally): 
-                self.store_raw_data_locally(dict_properties, product_id) # Locally stores the dictionary 
-                self.pid_list_locally.append(product_id)
-            # -------- Store Data on S3 -------- #
-            if self.store_data_on_S3 and (product_id not in self.pid_list_s3): 
-                if not self.store_data_locally:
-                    self.store_raw_data_locally(dict_properties, product_id) # Locally stores the dictionary
-                    self.store_to_S3_boto3(product_id) # Stores data on AWS S3
-                    shutil.rmtree(f'./raw_data/{product_id}')
-                    print('Record removed successfully after storing it on the S3 bucket')
-                    self.pid_list_s3.append(product_id)
-                else:
-                    self.store_to_S3_boto3(product_id) # Stores data on AWS S3
-                    self.pid_list_s3.append(product_id)
-            # -------- Store Data on RDS ------- #
-            if self.store_data_in_rds_table and (product_id not in self.pid_list_rds): 
-                df_products = self.create_df(dict_properties)
-                self.store_tables_on_rds(df_products, self.table_name)
+            self.store_data_final()
         self.driver.close()
